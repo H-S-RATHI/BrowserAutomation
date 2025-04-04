@@ -57,12 +57,7 @@ npm start
 - `GET /api/status` - Get current automation status
 - `POST /api/stop` - Stop current automation
 
-## Development
 
-Run tests:
-```bash
-npm test
-```
 
 ## License
 

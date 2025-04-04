@@ -1,5 +1,5 @@
+//BrowserAutomation.js
 const WebSocket = require('ws');
-const { NLPProcessor } = require('../services/NLPProcessor');
 const { logger } = require('../utils/logger');
 const { spawn } = require('child_process');
 const http = require('http');
@@ -18,7 +18,6 @@ class BrowserAutomation {
             ...options
         };
         this.ws = null;
-        this.nlpProcessor = new NLPProcessor();
         this.messageId = 0;
         this.browserProcess = null;
         this.pendingCommands = new Map();

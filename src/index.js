@@ -1,79 +1,22 @@
+//index.js
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { BrowserAutomation } = require('./core/BrowserAutomation');
+const { NLPProcessor } = require('./services/NLPProcessor');
+const { PlanExecutor } = require('./core/PlanExecutor');
 const { logger } = require('./utils/logger');
 
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
 
-// Initialize Gemini
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-// Retry configuration
-const retryDelay = 1000; // 1 second
-const maxRetries = 3;
+// Initialize NLP processor
+const nlpProcessor = new NLPProcessor(process.env.GEMINI_API_KEY);
 
 // Global browser automation instance
 let browserAutomation = null;
-
-async function retryWithBackoff(operation) {
-    let lastError;
-    for (let i = 0; i < maxRetries; i++) {
-        try {
-            return await operation();
-        } catch (error) {
-            lastError = error;
-            if (error.message.includes('429') || error.message.includes('Rate limit')) {
-                const delay = retryDelay * Math.pow(2, i);
-                logger.warn(`Rate limit hit, retrying in ${delay}ms...`);
-                await new Promise(resolve => setTimeout(resolve, delay));
-                continue;
-            }
-            throw error;
-        }
-    }
-    throw lastError;
-}
-
-// Process natural language commands
-async function processCommand(command) {
-    try {
-        // Ask Gemini to parse the command
-        const prompt = `You are a browser automation expert. Convert natural language commands into structured actions.
-        Return JSON in this format:
-        {
-            "action": "navigate|search|login",
-            "url": "the target URL",
-            "params": { additional parameters }
-        }
-        
-        Command: ${command}`;
-        
-        const result = await retryWithBackoff(async () => {
-            const response = await model.generateContent(prompt);
-            return response;
-        });
-        
-        const response = await result.response;
-        const text = response.text();
-        
-        // Extract JSON from the response
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) {
-            throw new Error('Failed to extract JSON from Gemini response');
-        }
-        
-        const parsedCommand = JSON.parse(jsonMatch[0]);
-        return parsedCommand;
-    } catch (error) {
-        logger.error('Failed to process command:', error);
-        throw error;
-    }
-}
+let planExecutor = null;
 
 // Handle browser automation commands
 app.post('/api/execute', async (req, res) => {
@@ -81,8 +24,8 @@ app.post('/api/execute', async (req, res) => {
 
     try {
         // Process the natural language command
-        const parsedCommand = await processCommand(command);
-        logger.info('Parsed command:', parsedCommand);
+        const plan = await nlpProcessor.processCommand(command);
+        logger.info('Generated automation plan:', plan);
 
         // Ensure browser automation is initialized
         if (!browserAutomation) {
@@ -91,84 +34,16 @@ app.post('/api/execute', async (req, res) => {
                 browser: 'chrome'
             });
             await browserAutomation.initialize();
+            planExecutor = new PlanExecutor(browserAutomation, nlpProcessor);
         }
 
-        // First get the list of available targets
-        const targetsResponse = await browserAutomation.sendCommand('Target.getTargets');
-        
-        // Create a new tab
-        const createTargetResponse = await browserAutomation.sendCommand('Target.createTarget', {
-            url: 'about:blank'
-        });
-        
-        // Properly extract targetId from the response
-        const targetId = createTargetResponse.result.targetId;
-        
-        if (!targetId) {
-            throw new Error('Failed to create new browser tab');
-        }
-
-        logger.info(`Created new tab with targetId: ${targetId}`);
-        
-        // Attach to the new target
-        const attachResponse = await browserAutomation.sendCommand('Target.attachToTarget', {
-            targetId: targetId,
-            flatten: true
-        });
-
-        if (!attachResponse.result.sessionId) {
-            throw new Error('Failed to attach to target');
-        }
-
-        const sessionId = attachResponse.result.sessionId;
-        logger.info(`Attached to target with sessionId: ${sessionId}`);
-
-        // Enable page events for the session
-        await browserAutomation.sendCommand('Page.enable', {}, sessionId);
-        
-        // Wait to make sure page is ready
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        // Execute the command in the new tab
-        switch (parsedCommand.action) {
-            case 'navigate':
-                logger.info(`Navigating to URL: ${parsedCommand.url} in tab ${targetId}`);
-                
-                // Use the sessionId when sending the command
-                const navResponse = await browserAutomation.sendCommand('Page.navigate', { 
-                    url: parsedCommand.url
-                }, sessionId);
-                
-                logger.info('Navigation response:', navResponse);
-                
-                // Wait for navigation to complete
-                await new Promise(resolve => setTimeout(resolve, 3000));
-                logger.info(`Navigation completed to: ${parsedCommand.url}`);
-                break;
-
-            case 'search':
-                logger.info(`Searching URL: ${parsedCommand.url} in tab ${targetId}`);
-                
-                // Use the sessionId when sending the command
-                const searchResponse = await browserAutomation.sendCommand('Page.navigate', { 
-                    url: parsedCommand.url
-                }, sessionId);
-                
-                logger.info('Search response:', searchResponse);
-                
-                // Wait for navigation to complete
-                await new Promise(resolve => setTimeout(resolve, 3000));
-                logger.info(`Search completed for: ${parsedCommand.url}`);
-                break;
-
-            default:
-                throw new Error(`Unknown action: ${parsedCommand.action}`);
-        }
+        // Execute the plan using the PlanExecutor
+        const executedPlan = await planExecutor.executePlan(plan);
 
         res.json({
             success: true,
             message: 'Command executed successfully',
-            data: parsedCommand
+            data: executedPlan
         });
     } catch (error) {
         logger.error('Command execution failed:', error);
@@ -195,13 +70,8 @@ app.listen(port, async () => {
         });
         
         await browserAutomation.initialize();
+        planExecutor = new PlanExecutor(browserAutomation, nlpProcessor);
         logger.info('Browser automation initialized successfully');
-        
-        // Navigate to a default page
-        await browserAutomation.sendCommand('Page.navigate', { url: 'https://www.google.com' });
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        logger.info('Navigated to default page');
     } catch (error) {
         logger.error('Failed to initialize browser automation:', error);
     }
