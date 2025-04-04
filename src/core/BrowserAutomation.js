@@ -102,8 +102,6 @@ class BrowserAutomation {
             throw new Error(`Unsupported browser: ${this.options.browser}`);
         }
 
-       
-
         // Arguments to use the temporary profile
         const args = [
             `--remote-debugging-port=${this.options.debugPort}`,
@@ -239,14 +237,20 @@ class BrowserAutomation {
         });
     }
 
-    async sendCommand(method, params = {}) {
+    // Modified to handle sessionId properly
+    async sendCommand(method, params = {}, sessionId = null) {
         return new Promise((resolve, reject) => {
             const id = ++this.messageId;
-            const message = {
+            let message = {
                 id,
                 method,
                 params
             };
+
+            // If sessionId is provided, include it in the message
+            if (sessionId) {
+                message.sessionId = sessionId;
+            }
 
             this.ws.send(JSON.stringify(message), (error) => {
                 if (error) {
@@ -269,20 +273,17 @@ class BrowserAutomation {
         }
     }
     
-    // Add fillFormField method which was called in index.js but missing here
-    async fillFormField(selector, value, targetId = null) {
+    async fillFormField(selector, value, sessionId = null) {
         try {
             // First focus the element
             await this.sendCommand('Runtime.evaluate', {
-                expression: `document.querySelector('${selector}').focus()`,
-                targetId: targetId
-            });
+                expression: `document.querySelector('${selector}').focus()`
+            }, sessionId);
             
             // Then set its value 
             await this.sendCommand('Runtime.evaluate', {
-                expression: `document.querySelector('${selector}').value = '${value}'`,
-                targetId: targetId
-            });
+                expression: `document.querySelector('${selector}').value = '${value}'`
+            }, sessionId);
             
             return true;
         } catch (error) {

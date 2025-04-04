@@ -93,49 +93,72 @@ app.post('/api/execute', async (req, res) => {
             await browserAutomation.initialize();
         }
 
+        // First get the list of available targets
+        const targetsResponse = await browserAutomation.sendCommand('Target.getTargets');
+        
         // Create a new tab
         const createTargetResponse = await browserAutomation.sendCommand('Target.createTarget', {
             url: 'about:blank'
         });
         
-        // Fix: Properly extract targetId from the response
+        // Properly extract targetId from the response
         const targetId = createTargetResponse.result.targetId;
         
         if (!targetId) {
             throw new Error('Failed to create new browser tab');
         }
 
+        logger.info(`Created new tab with targetId: ${targetId}`);
+        
+        // Attach to the new target
+        const attachResponse = await browserAutomation.sendCommand('Target.attachToTarget', {
+            targetId: targetId,
+            flatten: true
+        });
+
+        if (!attachResponse.result.sessionId) {
+            throw new Error('Failed to attach to target');
+        }
+
+        const sessionId = attachResponse.result.sessionId;
+        logger.info(`Attached to target with sessionId: ${sessionId}`);
+
+        // Enable page events for the session
+        await browserAutomation.sendCommand('Page.enable', {}, sessionId);
+        
+        // Wait to make sure page is ready
+        await new Promise(resolve => setTimeout(resolve, 500));
+
         // Execute the command in the new tab
         switch (parsedCommand.action) {
             case 'navigate':
-                await browserAutomation.sendCommand('Page.navigate', { 
-                    url: parsedCommand.url,
-                    targetId: targetId
-                });
+                logger.info(`Navigating to URL: ${parsedCommand.url} in tab ${targetId}`);
+                
+                // Use the sessionId when sending the command
+                const navResponse = await browserAutomation.sendCommand('Page.navigate', { 
+                    url: parsedCommand.url
+                }, sessionId);
+                
+                logger.info('Navigation response:', navResponse);
+                
                 // Wait for navigation to complete
-                await new Promise(resolve => setTimeout(resolve, 2000));
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                logger.info(`Navigation completed to: ${parsedCommand.url}`);
                 break;
 
             case 'search':
-                await browserAutomation.sendCommand('Page.navigate', { 
-                    url: 'https://www.google.com',
-                    targetId: targetId
-                });
+                logger.info(`Searching URL: ${parsedCommand.url} in tab ${targetId}`);
+                
+                // Use the sessionId when sending the command
+                const searchResponse = await browserAutomation.sendCommand('Page.navigate', { 
+                    url: parsedCommand.url
+                }, sessionId);
+                
+                logger.info('Search response:', searchResponse);
+                
                 // Wait for navigation to complete
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                
-                // Type search query
-                await browserAutomation.fillFormField('input[name="q"]', parsedCommand.params.query, targetId);
-                
-                // Press Enter
-                await browserAutomation.sendCommand('Input.dispatchKeyEvent', {
-                    type: 'keyDown',
-                    key: 'Enter',
-                    targetId: targetId
-                });
-                
-                // Wait for results
-                await new Promise(resolve => setTimeout(resolve, 2000));
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                logger.info(`Search completed for: ${parsedCommand.url}`);
                 break;
 
             default:
