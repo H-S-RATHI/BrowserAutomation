@@ -1,0 +1,32 @@
+{
+  "name": "browser-automation",
+  "version": "1.0.0",
+  "description": "Browser automation tool using native browser protocols",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "jest"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "https-proxy-agent": "^7.0.2",
+    "winston": "^3.11.0",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
+  "resolutions": {
+    "glob": "^9.0.0",
+    "inflight": "^2.0.0"
+  },
+  "overrides": {
+    "glob": "^9.0.0",
+    "inflight": "^2.0.0"
+  }
+}
