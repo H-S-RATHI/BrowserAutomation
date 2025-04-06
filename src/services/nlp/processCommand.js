@@ -18,6 +18,7 @@ async function processCommand(command) {
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
     
     const prompt = `You are a browser automation assistant. Convert the following natural language command into a structured automation plan.
+
 Create a JSON object with a 'task' field containing a brief description, and a 'steps' array with the detailed steps to complete the task.
 
 Each step should have:
@@ -31,49 +32,55 @@ Each step should have:
 }
 
 Important guidelines:
-- For navigation, use the 'navigate' action with a full URL
-- For search actions, use 'search' to handle both search box and submit button
-- For text input, use 'type' to type into form fields
-- For clicking elements, use 'click' with a description of what to click
-- For pressing Enter, use 'pressEnter' when needed
-- For data extraction, use 'extract' with a description of what data to get
-- For waiting, use 'wait' with a duration in milliseconds
-- For scrolling, use 'scroll' with a description of where to scroll
-- For finding selectors, use 'findSelector' with a description of what element to find
+1. For navigation, use the 'navigate' action with a full URL
+2. For search actions, use 'search' to handle both search box and submit button
+3. For text input, use 'type' to type into form fields
+4. For clicking elements, use 'click' with a description of what to click
+5. For pressing Enter, use 'pressEnter' when needed
+6. For waiting, use 'wait' with a duration in milliseconds
+7. For scrolling, use 'scroll' with a description of where to scroll
+8. For finding selectors, use 'findSelector' with a description of what element to find
 
-**CRITICAL**: Before these interactive actions (click and type), ALWAYS include a findSelector step to locate the element.
+**IMPORTANT**: Generate only the steps that are explicitly requested by the user. If the user only asks to "go to Google and search for New York", do not automatically add data extraction steps.
 
 Example plan structure:
 {
-  "task": "Brief description of the task",
+  "task": "Search for 'smartphone' on Flipkart",
   "steps": [
     {
       "action": "navigate",
-      "description": "Go to example website",
+      "description": "Go to Flipkart",
       "params": {
-        "url": "https://example.com"
+        "url": "https://www.flipkart.com"
+      }
+    },
+    {
+      "action": "wait",
+      "description": "Wait for page to load",
+      "params": {
+        "data": 5000
       }
     },
     {
       "action": "findSelector",
-      "description": "Find search input field",
+      "description": "Find the search input field",
       "params": {
-        "description": "search input field"
+        "description": "Search input field"
       }
     },
     {
       "action": "type",
-      "description": "Type search query",
+      "description": "Type 'smartphone' into the search field",
       "params": {
-        "text": "search query",
-        "description": "search input field"
+        "text": "smartphone",
+        "description": "Search input field"
       }
     },
     {
       "action": "pressEnter",
-      "description": "Submit search by pressing Enter",
+      "description": "Submit the search query",
       "params": {
-        "description": "search input field"
+        "description": "Search input field"
       }
     }
   ]

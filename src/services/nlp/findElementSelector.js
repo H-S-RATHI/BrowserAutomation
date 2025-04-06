@@ -9,6 +9,8 @@ const { cleanHtml } = require('./cleanHtml');
  * @param {object} model - The Gemini model instance
  * @returns {Object} - Object containing the selector and possibly a submit selector
  */
+
+
 async function findElementSelector(pageHtml, elementDescription, model) {
     try {
         // Clean HTML before sending to AI
@@ -17,6 +19,11 @@ async function findElementSelector(pageHtml, elementDescription, model) {
         const prompt = `You are an expert in HTML and CSS selectors. Analyze the provided HTML and find the best and exact CSS selector for the element described.
 
 Description: ${elementDescription}
+
+Important Notes:
+1. If the description mentions a search bar, input field, or text box, always return a selector that specifically targets an input element
+2. For search bars, look for input[type="search"] or input[type="text"] elements with attributes like aria-label="Search", aria-label="Search YouTube", or similar
+3. For other form elements, ensure the selector targets the correct input type (e.g., input[type="text"], input[type="password"], textarea)
 
 Return a valid JSON object in this format:
 {
@@ -35,6 +42,7 @@ ${cleanedHtml}`;
         
         const response = await result.response;
         const text = response.text();
+
         
         // Extract JSON from the response
         const jsonMatch = text.match(/\{[\s\S]*\}/);

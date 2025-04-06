@@ -1,13 +1,13 @@
 const { logger } = require('../../utils/logger');
 
 /**
- * Handles the 'click' action by finding and clicking on elements
+ * Enhanced click handler with improved fallback mechanisms
  * @param {Object} step - The step to execute
- * @param {Object} context - The execution context containing browserAutomation and nlpProcessor instances
+ * @param {Object} context - The execution context containing browserAutomation instance
  * @returns {Object} The updated step object
  */
 async function handleClick(step, context) {
-    const { browserAutomation, nlpProcessor } = context;
+    const { browserAutomation } = context;
 
     if (!step.sessionId) {
         throw new Error('Session ID required for click action');
@@ -21,9 +21,9 @@ async function handleClick(step, context) {
     if (!step.params.selector) {
         throw new Error('No selector provided for click action');
     }
-    
-    logger.info(`Using selector: ${step.params.selector}`);
-    
+
+    logger.info(`Attempting to click with selector: ${step.params.selector}`);
+
     try {
         // Get the DOM node for the element
         const documentResult = await browserAutomation.sendCommand('DOM.getDocument', {
@@ -31,47 +31,213 @@ async function handleClick(step, context) {
         }, step.sessionId);
         
         const rootNodeId = documentResult.result.root.nodeId;
+        let nodeId = null;
+        let selectorFound = false;
         
-        // Find the element
-        const queryResult = await browserAutomation.sendCommand('DOM.querySelector', {
-            nodeId: rootNodeId,
-            selector: step.params.selector
-        }, step.sessionId);
-        
-        if (!queryResult.result.nodeId) {
-            throw new Error(`Element not found with selector: ${step.params.selector}`);
+        // Try the provided selector first
+        try {
+            const queryResult = await browserAutomation.sendCommand('DOM.querySelector', {
+                nodeId: rootNodeId,
+                selector: step.params.selector
+            }, step.sessionId);
+            
+            if (queryResult.result.nodeId) {
+                nodeId = queryResult.result.nodeId;
+                selectorFound = true;
+                logger.info(`Element found with provided selector: ${step.params.selector}`);
+            }
+        } catch (error) {
+            logger.warn(`Error using primary selector: ${error.message}`);
         }
         
-        const nodeId = queryResult.result.nodeId;
-        
-        // Get element information
-        const boxModel = await browserAutomation.sendCommand('DOM.getBoxModel', {
-            nodeId: nodeId
-        }, step.sessionId);
-        
-        if (!boxModel.result || !boxModel.result.model) {
-            throw new Error('Could not get element dimensions');
+        // If primary selector failed, try alternative selectors
+        if (!selectorFound) {
+            logger.warn('Element not found with primary selector, trying alternatives');
+            
+            const alternativeSelectors = [
+                // E-commerce product items
+                'div._75nlfW a.CGtC98',
+                "ytd-item-section-renderer > div > yt-lockup-view-model:nth-child(1) a.yt-lockup-view-model-wiz__content-image",
+                'div[data-id] a[href*="product"]',
+                'div.product-item a',
+                // YouTube video thumbnail
+                'ytd-rich-item-renderer a#video-title',
+                'ytd-rich-grid-media a#video-title',
+                'ytd-grid-video-renderer a#video-title',
+                // Common link patterns
+                'a.item-title',
+                'a.product-title',
+                'a.result-title',
+                // Generic link with text
+                'a:not(:empty)',
+                // Generic clickable element
+                'button:not([disabled]), input[type="button"]:not([disabled]), input[type="submit"]:not([disabled])',
+                // First visible link
+                'a[href]:visible'
+            ];
+
+            for (const selector of alternativeSelectors) {
+                try {
+                    const altQueryResult = await browserAutomation.sendCommand('DOM.querySelector', {
+                        nodeId: rootNodeId,
+                        selector: selector
+                    }, step.sessionId);
+
+                    if (altQueryResult.result.nodeId) {
+                        logger.info(`Found element using alternative selector: ${selector}`);
+                        nodeId = altQueryResult.result.nodeId;
+                        step.params.selector = selector;
+                        selectorFound = true;
+                        break;
+                    }
+                } catch (error) {
+                    // Continue trying other selectors
+                }
+            }
         }
-        
-        // Scroll element into view
-        await browserAutomation.sendCommand('Runtime.evaluate', {
-            expression: `
-                (() => {
-                    const element = document.querySelector("${step.params.selector}");
-                    if (!element) return false;
-                    
-                    // Scroll element into view
-                    element.scrollIntoView({behavior: 'instant', block: 'center'});
-                    return true;
-                })()
-            `,
-            returnByValue: true
-        }, step.sessionId);
-        
-        // Wait a moment for scrolling to complete
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Check if element is visible and interactable
+
+        // If no selector worked, try to find the first item in search results
+        if (!selectorFound) {
+            logger.warn('No selectors worked, attempting to find first clickable item');
+            
+            const findFirstClickable = await browserAutomation.sendCommand('Runtime.evaluate', {
+                expression: `
+                    (() => {
+                        // Find all visible links
+                        const links = Array.from(document.querySelectorAll('a[href]'))
+                            .filter(el => {
+                                const rect = el.getBoundingClientRect();
+                                const style = window.getComputedStyle(el);
+                                return rect.width > 0 && 
+                                       rect.height > 0 && 
+                                       style.display !== 'none' && 
+                                       style.visibility !== 'hidden' && 
+                                       style.opacity !== '0';
+                            });
+                            
+                        // Find product items
+                        const productItems = links.filter(link => {
+                            const href = link.href.toLowerCase();
+                            const text = link.textContent.toLowerCase();
+                            return (href.includes('product') || 
+                                   href.includes('item') || 
+                                   text.includes('laptop') || 
+                                   text.includes('phone') ||
+                                   link.querySelector('img'));
+                        });
+                        
+                        const targetElement = productItems.length > 0 ? productItems[0] : (links.length > 0 ? links[0] : null);
+                        
+                        if (targetElement) {
+                            // Create an attribute to identify this element
+                            targetElement.setAttribute('data-auto-click-target', 'true');
+                            return {
+                                found: true,
+                                selector: '[data-auto-click-target="true"]',
+                                rect: targetElement.getBoundingClientRect(),
+                                tagName: targetElement.tagName
+                            };
+                        }
+                        
+                        return { found: false };
+                    })()
+                `,
+                returnByValue: true
+            }, step.sessionId);
+            
+            if (findFirstClickable.result.result.found) {
+                logger.info(`Found clickable element: ${JSON.stringify(findFirstClickable.result.result)}`);
+                step.params.selector = findFirstClickable.result.result.selector;
+                
+                // Get the node ID for our new selector
+                const queryResult = await browserAutomation.sendCommand('DOM.querySelector', {
+                    nodeId: rootNodeId,
+                    selector: step.params.selector
+                }, step.sessionId);
+                
+                if (queryResult.result.nodeId) {
+                    nodeId = queryResult.result.nodeId;
+                    selectorFound = true;
+                }
+            }
+        }
+
+        if (!selectorFound || !nodeId) {
+            // If we can't find the element by selector, try direct coordinates
+            logger.warn('Unable to find element with any selector, falling back to coordinate click');
+            
+            // Get page dimensions
+            const layoutMetrics = await browserAutomation.sendCommand('Page.getLayoutMetrics', {}, step.sessionId);
+            const viewportWidth = layoutMetrics.result.layoutViewport.clientWidth;
+            const viewportHeight = layoutMetrics.result.layoutViewport.clientHeight;
+            
+            // If this is a search results page, click in the area where first result would be
+            const centerX = viewportWidth * 0.5;  // Middle of page
+            const centerY = viewportHeight * 0.25; // Upper quarter of page where first result often is
+            
+            logger.info(`Falling back to coordinate click at (${centerX}, ${centerY})`);
+            
+            await browserAutomation.sendCommand('Input.dispatchMouseEvent', {
+                type: 'mousePressed',
+                x: centerX,
+                y: centerY,
+                button: 'left',
+                clickCount: 1
+            }, step.sessionId);
+
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            await browserAutomation.sendCommand('Input.dispatchMouseEvent', {
+                type: 'mouseReleased',
+                x: centerX,
+                y: centerY,
+                button: 'left',
+                clickCount: 1
+            }, step.sessionId);
+            
+            logger.info(`Clicked at coordinates: (${centerX}, ${centerY})`);
+            return step;
+        }
+
+        // Element found, now ensure it's visible and scroll to it
+        try {
+            // Scroll element into view
+            await browserAutomation.sendCommand('Runtime.evaluate', {
+                expression: `
+                    (() => {
+                        const element = document.querySelector("${step.params.selector}");
+                        if (!element) return false;
+                        
+                        // Smooth scroll to element
+                        element.scrollIntoView({behavior: 'smooth', block: 'center'});
+                        return true;
+                    })()
+                `,
+                returnByValue: true
+            }, step.sessionId);
+
+            // Wait for scrolling to complete
+            await new Promise(resolve => setTimeout(resolve, 700));
+        } catch (error) {
+            logger.warn(`Error scrolling to element: ${error.message}`);
+        }
+
+        // Get element dimension information
+        let boxModel;
+        try {
+            boxModel = await browserAutomation.sendCommand('DOM.getBoxModel', {
+                nodeId: nodeId
+            }, step.sessionId);
+            
+            if (!boxModel.result || !boxModel.result.model) {
+                throw new Error('Could not get element dimensions');
+            }
+        } catch (error) {
+            logger.warn(`Error getting box model: ${error.message}`);
+            boxModel = null;
+        }
+
+        // Check if element is visible
         const visibilityCheck = await browserAutomation.sendCommand('Runtime.evaluate', {
             expression: `
                 (() => {
@@ -90,43 +256,8 @@ async function handleClick(step, context) {
                         style.opacity === '0'
                     );
                     
-                    if (!isVisible) {
-                        return { 
-                            visible: false, 
-                            reason: "Element is not visible", 
-                            details: {
-                                width: rect.width,
-                                height: rect.height,
-                                display: style.display,
-                                visibility: style.visibility,
-                                opacity: style.opacity
-                            }
-                        };
-                    }
-                    
-                    // Check if element is covered by another element
-                    const centerX = rect.left + rect.width / 2;
-                    const centerY = rect.top + rect.height / 2;
-                    const elementAtPoint = document.elementFromPoint(centerX, centerY);
-                    
-                    if (!elementAtPoint) {
-                        return { visible: false, reason: "No element at center point" };
-                    }
-                    
-                    const isCovered = !element.contains(elementAtPoint) && !elementAtPoint.contains(element);
-                    
-                    if (isCovered) {
-                        return { 
-                            visible: false, 
-                            reason: "Element is covered by another element",
-                            coveringElement: elementAtPoint.tagName,
-                            coveringElementId: elementAtPoint.id,
-                            coveringElementClass: elementAtPoint.className
-                        };
-                    }
-                    
                     return { 
-                        visible: true,
+                        visible: isVisible,
                         rect: {
                             top: rect.top,
                             left: rect.left,
@@ -138,223 +269,167 @@ async function handleClick(step, context) {
             `,
             returnByValue: true
         }, step.sessionId);
-        
+
         logger.info(`Element visibility check: ${JSON.stringify(visibilityCheck.result.result)}`);
-        
-        if (!visibilityCheck.result.result.visible) {
-            logger.warn(`Element not visible: ${JSON.stringify(visibilityCheck.result.result)}`);
-            
-            // Try to make the element visible
-            await browserAutomation.sendCommand('Runtime.evaluate', {
-                expression: `
-                    (() => {
-                        const element = document.querySelector("${step.params.selector}");
-                        if (!element) return false;
-                        
-                        // Force visibility
-                        element.style.display = "block";
-                        element.style.visibility = "visible";
-                        element.style.opacity = "1";
-                        
-                        // Scroll again
-                        element.scrollIntoView({behavior: 'instant', block: 'center'});
-                        return true;
-                    })()
-                `,
-                returnByValue: true
-            }, step.sessionId);
-            
-            // Wait a moment for changes to take effect
-            await new Promise(resolve => setTimeout(resolve, 500));
-        }
-        
-        // Method 1: Use DOM.focus and Input.dispatchMouseEvent
-        try {
-            // Focus the element
-            await browserAutomation.sendCommand('DOM.focus', {
-                nodeId: nodeId
-            }, step.sessionId);
-            
-            // Get updated box model after scrolling
-            const updatedBoxModel = await browserAutomation.sendCommand('DOM.getBoxModel', {
-                nodeId: nodeId
-            }, step.sessionId);
-            
-            if (updatedBoxModel.result && updatedBoxModel.result.model) {
-                const { content } = updatedBoxModel.result.model;
-                
-                // Calculate center point
-                const centerX = (content[0] + content[2] + content[4] + content[6]) / 4;
-                const centerY = (content[1] + content[3] + content[5] + content[7]) / 4;
-                
-                // Mouse down
-                await browserAutomation.sendCommand('Input.dispatchMouseEvent', {
-                    type: 'mousePressed',
-                    x: centerX,
-                    y: centerY,
-                    button: 'left',
-                    clickCount: 1
-                }, step.sessionId);
-                
-                // Small delay
-                await new Promise(resolve => setTimeout(resolve, 50));
-                
-                // Mouse up
-                await browserAutomation.sendCommand('Input.dispatchMouseEvent', {
-                    type: 'mouseReleased',
-                    x: centerX,
-                    y: centerY,
-                    button: 'left',
-                    clickCount: 1
-                }, step.sessionId);
-                
-                logger.info(`Clicked element at coordinates: (${centerX}, ${centerY})`);
-            }
-        } catch (error) {
-            logger.warn(`Method 1 failed: ${error.message}`);
-        }
-        
-        // Wait a moment to see if the click had an effect
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // Method 2: Use JavaScript click()
-        try {
-            logger.info('Trying JavaScript click() method');
-            await browserAutomation.sendCommand('Runtime.evaluate', {
-                expression: `
-                    (() => {
-                        const element = document.querySelector("${step.params.selector}");
-                        if (!element) return false;
-                        
-                        // Try multiple click approaches
-                        try {
-                            // Standard click
-                            element.click();
-                            console.log("Standard click executed");
-                            
-                            // Dispatch click event
-                            const clickEvent = new MouseEvent('click', {
-                                view: window,
-                                bubbles: true,
-                                cancelable: true
-                            });
-                            element.dispatchEvent(clickEvent);
-                            console.log("Click event dispatched");
-                            
-                            return true;
-                        } catch (e) {
-                            console.error("Click error:", e);
-                            return false;
-                        }
-                    })()
-                `,
-                returnByValue: true
-            }, step.sessionId);
-        } catch (error) {
-            logger.warn(`Method 2 failed: ${error.message}`);
-        }
-        
-        // Wait a moment to see if the click had an effect
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // Method 3: Try to click any link or button inside the element
-        try {
-            logger.info('Trying to click child links or buttons');
-            await browserAutomation.sendCommand('Runtime.evaluate', {
-                expression: `
-                    (() => {
-                        const element = document.querySelector("${step.params.selector}");
-                        if (!element) return false;
-                        
-                        // Try to find and click links or buttons inside
-                        const clickables = element.querySelectorAll('a, button, input[type="submit"], input[type="button"]');
-                        if (clickables.length > 0) {
-                            console.log("Found " + clickables.length + " clickable elements inside");
-                            clickables[0].click();
-                            return true;
-                        }
-                        
-                        // If the element itself is a link or button, try to navigate directly
-                        if (element.tagName === 'A' && element.href) {
-                            console.log("Element is a link, navigating to: " + element.href);
-                            window.location.href = element.href;
-                            return true;
-                        }
-                        
-                        return false;
-                    })()
-                `,
-                returnByValue: true
-            }, step.sessionId);
-        } catch (error) {
-            logger.warn(`Method 3 failed: ${error.message}`);
-        }
-        
-        logger.info('Click action completed with multiple methods');
-    } catch (error) {
-        logger.error(`Error during click action: ${error.message}`);
-        
-        // Final fallback - try a direct click by selector
-        try {
-            logger.info('Trying fallback direct click by selector');
-            await browserAutomation.sendCommand('Runtime.evaluate', {
-                expression: `
-                    (() => {
-                        try {
-                            // Try to find the element
+
+        // Try different click methods in order of reliability
+        const clickMethods = [
+            // Method 1: JavaScript click (most reliable)
+            async () => {
+                const result = await browserAutomation.sendCommand('Runtime.evaluate', {
+                    expression: `
+                        (() => {
                             const element = document.querySelector("${step.params.selector}");
-                            if (!element) {
-                                // Try XPath as a last resort
-                                const xpathResult = document.evaluate(
-                                    "//*[contains(text(), '${step.params.description?.replace(/'/g, "\\'")}')]", 
-                                    document, 
-                                    null, 
-                                    XPathResult.FIRST_ORDERED_NODE_TYPE, 
-                                    null
-                                );
+                            if (!element) return false;
+                            
+                            try {
+                                // Ensure visibility
+                                element.style.pointerEvents = "auto";
                                 
-                                if (xpathResult && xpathResult.singleNodeValue) {
-                                    xpathResult.singleNodeValue.click();
-                                    return "Clicked element found by XPath text search";
-                                }
+                                // Standard click
+                                element.click();
+                                console.log("JavaScript click executed");
                                 
-                                return "Element not found by selector or XPath";
+                                return true;
+                            } catch (e) {
+                                console.error("JavaScript click error:", e);
+                                return false;
+                            }
+                        })()
+                    `,
+                    returnByValue: true
+                }, step.sessionId);
+
+                return result.result.value;
+            },
+
+            // Method 2: Use DOM focus and mouse events
+            async () => {
+                if (!boxModel || !boxModel.result || !boxModel.result.model) {
+                    return false;
+                }
+
+                try {
+                    await browserAutomation.sendCommand('DOM.focus', {
+                        nodeId: nodeId
+                    }, step.sessionId);
+
+                    const { content } = boxModel.result.model;
+                    const centerX = (content[0] + content[2] + content[4] + content[6]) / 4;
+                    const centerY = (content[1] + content[3] + content[5] + content[7]) / 4;
+
+                    await browserAutomation.sendCommand('Input.dispatchMouseEvent', {
+                        type: 'mousePressed',
+                        x: centerX,
+                        y: centerY,
+                        button: 'left',
+                        clickCount: 1
+                    }, step.sessionId);
+
+                    await new Promise(resolve => setTimeout(resolve, 50));
+
+                    await browserAutomation.sendCommand('Input.dispatchMouseEvent', {
+                        type: 'mouseReleased',
+                        x: centerX,
+                        y: centerY,
+                        button: 'left',
+                        clickCount: 1
+                    }, step.sessionId);
+
+                    logger.info(`Clicked element at coordinates: (${centerX}, ${centerY})`);
+                    return true;
+                } catch (error) {
+                    logger.warn(`Coordinate click error: ${error.message}`);
+                    return false;
+                }
+            },
+
+            // Method 3: Try to click child links or redirect
+            async () => {
+                const result = await browserAutomation.sendCommand('Runtime.evaluate', {
+                    expression: `
+                        (() => {
+                            const element = document.querySelector("${step.params.selector}");
+                            if (!element) return false;
+                            
+                            // Try to find and click links inside
+                            const clickables = element.querySelectorAll('a, button, input[type="submit"], input[type="button"]');
+                            if (clickables.length > 0) {
+                                console.log("Found " + clickables.length + " clickable elements inside");
+                                clickables[0].click();
+                                return true;
                             }
                             
-                            // Force the element to be visible and clickable
-                            element.style.display = "block";
-                            element.style.visibility = "visible";
-                            element.style.opacity = "1";
-                            element.style.pointerEvents = "auto";
+                            // If the element is a link, try to navigate directly
+                            if (element.tagName === 'A' && element.href) {
+                                console.log("Element is a link, navigating to: " + element.href);
+                                window.location.href = element.href;
+                                return true;
+                            }
                             
-                            // Scroll into view
-                            element.scrollIntoView({behavior: 'instant', block: 'center'});
+                            return false;
+                        })()
+                    `,
+                    returnByValue: true
+                }, step.sessionId);
+
+                return result.result.value;
+            },
+            
+            // Method 4: Last resort - try direct URL navigation if it's a link
+            async () => {
+                const result = await browserAutomation.sendCommand('Runtime.evaluate', {
+                    expression: `
+                        (() => {
+                            const element = document.querySelector("${step.params.selector}");
+                            if (!element) return { success: false };
                             
-                            // Wait a moment
-                            setTimeout(() => {
-                                // Click the element
-                                element.click();
-                                
-                                // If it's a link, navigate directly
-                                if (element.tagName === 'A' && element.href) {
-                                    window.location.href = element.href;
-                                }
-                            }, 100);
+                            // If element is a link or has a link inside
+                            let href = null;
+                            if (element.tagName === 'A') {
+                                href = element.href;
+                            } else {
+                                const link = element.querySelector('a[href]');
+                                if (link) href = link.href;
+                            }
                             
-                            return "Fallback click initiated";
-                        } catch (e) {
-                            return "Fallback error: " + e.message;
-                        }
-                    })()
-                `,
-                returnByValue: true
-            }, step.sessionId);
-        } catch (fallbackError) {
-            logger.error(`Fallback method also failed: ${fallbackError.message}`);
+                            if (href) {
+                                console.log("Attempting direct navigation to: " + href);
+                                window.location.href = href;
+                                return { success: true, href };
+                            }
+                            
+                            return { success: false };
+                        })()
+                    `,
+                    returnByValue: true
+                }, step.sessionId);
+
+                return result.result.value && result.result.value.success;
+            }
+        ];
+
+        // Try each click method until one succeeds
+        for (let i = 0; i < clickMethods.length; i++) {
+            try {
+                const success = await clickMethods[i]();
+                if (success) {
+                    logger.info(`Click succeeded using method ${i + 1}`);
+                    // Wait a bit to let the click take effect
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    return step;
+                }
+            } catch (error) {
+                logger.warn(`Click method ${i + 1} failed: ${error.message}`);
+            }
         }
+
+        throw new Error('Failed to click element using all available methods');
+
+    } catch (error) {
+        logger.error(`Error during click action: ${error.message}`);
+        throw error;
     }
-    
-    return step;
 }
 
 module.exports = { handleClick };

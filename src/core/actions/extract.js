@@ -55,8 +55,6 @@ async function handleExtract(step, context) {
 
         // Log the extraction details
         logger.info('Data extraction completed');
-        logger.info('Extracted data:', extractedData);
-        logger.info('Data stored at:', storageInfo.filename);
 
         return step;
     } catch (error) {
