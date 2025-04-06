@@ -55,7 +55,8 @@ async function handleSelectorFinder(step, context) {
     logger.info(`Finding selector for form here: ${elementDescription}`);
     const selectorInfo = await nlpProcessor.findElementSelector(pageHTML, elementDescription);
     
-    // Store the selector information in the step result
+    // Store the selector information in both the step result and directly on the step
+    step.selector = selectorInfo.selector;
     step.result = {
         selectorInfo,
         success: true

@@ -14,7 +14,7 @@ async function findElementSelector(pageHtml, elementDescription, model) {
         // Clean HTML before sending to AI
         const cleanedHtml = cleanHtml(pageHtml);
         
-        const prompt = `You are an expert in HTML and CSS selectors. Analyze the provided HTML and find the best CSS selector for the element described.
+        const prompt = `You are an expert in HTML and CSS selectors. Analyze the provided HTML and find the best and exact CSS selector for the element described.
 
 Description: ${elementDescription}
 
@@ -22,8 +22,7 @@ Return a valid JSON object in this format:
 {
     "selector": "the most precise CSS selector to target the element",
     "confidence": 0.95,
-    "explanation": "Brief explanation of why this is the best selector",
-    "submitSelector": "selector for a related submit button if applicable" 
+    "explanation": "Brief explanation of why this is the best selector"
 }
 
 HTML:
@@ -44,7 +43,6 @@ ${cleanedHtml}`;
         }
         
         const selectorInfo = JSON.parse(jsonMatch[0]);
-        logger.info(`Found selector for "${elementDescription}":`, selectorInfo);
         return selectorInfo;
     } catch (error) {
         logger.error('Failed to find element selector:', error);

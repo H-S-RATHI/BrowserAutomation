@@ -13,42 +13,16 @@ async function handleClick(step, context) {
         throw new Error('Session ID required for click action');
     }
     
-    // Check if we already have a selector from PlanExecutor
-    if (!step.params.selector || !step.selectorVerified) {
-        // If selector is not provided or not verified, use AI to find it
-        if (step.params.description) {
-            // Get page HTML
-            const docResult = await browserAutomation.sendCommand('DOM.getDocument', {
-                depth: -1
-            }, step.sessionId);
-            
-            const nodeId = docResult.result.root.nodeId;
-            const outerHTMLResult = await browserAutomation.sendCommand('DOM.getOuterHTML', {
-                nodeId: nodeId
-            }, step.sessionId);
-            
-            const pageHTML = outerHTMLResult.result.outerHTML;
-            
-            // Use NLP to find the element selector
-            logger.info(`Getting selector for: ${step.params.description}`);
-            const selectorInfo = await nlpProcessor.findElementSelector(
-                pageHTML, 
-                step.params.description
-            );
-            
-            if (!selectorInfo || !selectorInfo.selector) {
-                throw new Error(`Could not find selector for: ${step.params.description}`);
-            }
-            
-            step.params.selector = selectorInfo.selector;
-            step.selectorVerified = true;
-            logger.info(`Found selector: ${step.params.selector}`);
-        } else {
-            throw new Error('No selector or element description provided for click action');
-        }
-    } else {
-        logger.info(`Using verified selector: ${step.params.selector}`);
+    // Use selector from previous findSelector step if available
+    if (!step.params.selector && step.selector) {
+        step.params.selector = step.selector;
     }
+    
+    if (!step.params.selector) {
+        throw new Error('No selector provided for click action');
+    }
+    
+    logger.info(`Using selector: ${step.params.selector}`);
     
     try {
         // Get the DOM node for the element

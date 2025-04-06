@@ -138,12 +138,24 @@
                 const data = await response.json();
                 
                 if (data.success) {
-                    responseDiv.innerHTML = `
-                        <p><strong>Command executed successfully!</strong></p>
-                        <p>Action: ${data.data.action}</p>
-                        <p>URL: ${data.data.url || 'N/A'}</p>
-                        <p>Parameters: ${JSON.stringify(data.data.params || {})}</p>
-                    `;
+                    let responseHtml = '<p><strong>Command executed successfully!</strong></p>';
+                    
+                    // Handle extract action response
+                    if (data.data?.extractedData) {
+                        responseHtml += `
+                            <h3>Extracted Data:</h3>
+                            <pre>${JSON.stringify(data.data.extractedData, null, 2)}</pre>
+                            <p>Data stored at: ${data.data.extractedData.storageInfo.filename}</p>
+                        `;
+                    } else {
+                        responseHtml += `
+                            <p>Action: ${data.data?.action || 'N/A'}</p>
+                            <p>URL: ${data.data?.url || 'N/A'}</p>
+                            <p>Parameters: ${JSON.stringify(data.data?.params || {}, null, 2)}</p>
+                        `;
+                    }
+                    
+                    responseDiv.innerHTML = responseHtml;
                 } else {
                     responseDiv.innerHTML = `
                         <p style="color: red;"><strong>Error:</strong> ${data.message}</p>
@@ -168,4 +180,4 @@
         });
     </script>
 </body>
-</html> 
+</html>

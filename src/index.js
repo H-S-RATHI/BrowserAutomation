@@ -25,7 +25,7 @@ app.post('/api/execute', async (req, res) => {
     try {
         // Process the natural language command
         const plan = await nlpProcessor.processCommand(command);
-        logger.info('Generated automation plan:', JSON.stringify(plan, null, 2));
+        logger.info('Generated automation plan: from index', JSON.stringify(plan, null, 2));
 
         // Ensure browser automation is initialized
         if (!browserAutomation) {

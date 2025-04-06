@@ -29,12 +29,13 @@ class PlanExecutor {
      * @returns {Object} - The execution results
      */
     async executePlan(plan) {
-        logger.info('Generated automation plan:');
+        logger.info('Generated automation plan: from paln');
         logger.info(JSON.stringify(plan, null, 2));
 
         const results = [];
         let sessionId = null;
         let targetId = null;
+        let lastSelector = null;
 
         // Execute each step in the plan
         for (const step of plan.steps) {
@@ -72,6 +73,12 @@ class PlanExecutor {
                         if (!step.params.description && step.description) {
                             step.params.description = step.description;
                         }
+                        
+                        // If we have a selector from the previous findSelector step, use it
+                        if (!step.params.selector && lastSelector) {
+                            step.params.selector = lastSelector;
+                        }
+                        
                         updatedStep = await handleClick(step, context);
                         break;
                     case 'type':
@@ -79,6 +86,12 @@ class PlanExecutor {
                         if (!step.params.description && step.description) {
                             step.params.description = step.description;
                         }
+                        
+                        // If we have a selector from the previous findSelector step, use it
+                        if (!step.params.selector && lastSelector) {
+                            step.params.selector = lastSelector;
+                        }
+                        
                         updatedStep = await handleType(step, context);
                         break;
                     case 'extract':
@@ -96,6 +109,11 @@ class PlanExecutor {
                             step.params.description = step.description;
                         }
                         updatedStep = await handleSelectorFinder(step, context);
+                        
+                        // Store the selector for use in subsequent steps
+                        if (updatedStep.result?.selectorInfo?.selector) {
+                            lastSelector = updatedStep.result.selectorInfo.selector;
+                        }
                         break;
                     case 'pressEnter':
                         // Add description if missing for pressEnter action

@@ -5,10 +5,9 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 /**
  * Processes a natural language command and converts it to an automation plan
  * @param {string} command - The natural language command to process
- * @param {Object} options - Additional options for processing
  * @returns {Object} - The automation plan
  */
-async function processCommand(command, options = {}) {
+async function processCommand(command) {
     if (!process.env.GEMINI_API_KEY) {
         throw new Error('GEMINI_API_KEY environment variable is required');
     }
@@ -31,8 +30,6 @@ Each step should have:
     "data": "Additional data needed for this step"
 }
 
-DO NOT include selectors in the plan. Selectors will be determined dynamically during execution.
-
 Important guidelines:
 - For navigation, use the 'navigate' action with a full URL
 - For search actions, use 'search' to handle both search box and submit button
@@ -44,6 +41,8 @@ Important guidelines:
 - For scrolling, use 'scroll' with a description of where to scroll
 - For finding selectors, use 'findSelector' with a description of what element to find
 
+**CRITICAL**: Before these interactive actions (click and type), ALWAYS include a findSelector step to locate the element.
+
 Example plan structure:
 {
   "task": "Brief description of the task",
@@ -53,6 +52,13 @@ Example plan structure:
       "description": "Go to example website",
       "params": {
         "url": "https://example.com"
+      }
+    },
+    {
+      "action": "findSelector",
+      "description": "Find search input field",
+      "params": {
+        "description": "search input field"
       }
     },
     {

@@ -102,7 +102,7 @@ async function handleSearch(step, context) {
         description: 'Type search query',
         params: {
             text: step.params.text || '',
-            description: 'search box'
+            selector: searchBoxResult.result.selectorInfo.selector
         },
         sessionId: step.sessionId
     };
