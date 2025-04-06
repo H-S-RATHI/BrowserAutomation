@@ -1,54 +1,118 @@
-const { logger } = require('../../utils/logger');
+const fs = require('fs');
+const path = require('path');
+const cheerio = require('cheerio');
+const url = require('url');
 
 /**
- * Cleans HTML content to reduce size and noise before sending to AI models
- * @param {string} html - The raw HTML content to clean
- * @returns {string} - The cleaned HTML content
+ * Extreme HTML simplifier for XPath analysis
+ * @param {string} html - Raw HTML content
+ * @returns {string} - Minimized HTML with only structural elements
  */
 function cleanHtml(html) {
-    // Remove script and style tags to reduce size and noise
-    let cleanedHtml = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
-    cleanedHtml = cleanedHtml.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
+    if (!html) return '';
     
-    // Remove comments
-    cleanedHtml = cleanedHtml.replace(/<!--[\s\S]*?-->/g, '');
-    
-    // Truncate the HTML if it's too large (keeping important parts like form elements)
-    if (cleanedHtml.length > 50000) {
-        // Extract body or main content area
-        const bodyMatch = cleanedHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-        if (bodyMatch && bodyMatch[1]) {
-            cleanedHtml = bodyMatch[1];
-        }
+    try {
+        const $ = cheerio.load(html, { decodeEntities: false });
         
-        // Further truncate if still too large, but keep forms, inputs, buttons
-        if (cleanedHtml.length > 50000) {
-            // Extract all forms
-            const forms = [];
-            const formRegex = /<form[^>]*>[\s\S]*?<\/form>/gi;
-            let formMatch;
-            while ((formMatch = formRegex.exec(cleanedHtml)) !== null) {
-                forms.push(formMatch[0]);
-            }
+        // Remove elements that don't contribute to DOM structure
+        const toRemove = [
+            'script', 'style', 'link', 'meta', 
+            'svg', 'canvas', 'video', 'audio',
+            'iframe', 'noscript', 'picture', 'source',
+            'embed', 'object', 'param', 'track',
+            'map', 'area', 'applet', 'basefont', 'font',
+           'marquee', 'blink', 'nobr', 'wbr', 'xmp',
+           'tt', 'big', 'small', 'strike', 'center',
+           'blockquote', 'q', 'cite', 'dfn', 'abbr',
+           'data', 'time', 'code', 'var', 'samp',
+           'kbd', 'tt', 'i', 'b', 'u', 's', 'em', 'strong',
+           'dfn', 'cite', 'address', 'pre', 'plaintext',
+        ];
+        $(toRemove.join(',')).remove();
+
+        // Process remaining elements
+        $('*').each(function() {
+            const $el = $(this);
             
-            // Extract important elements
-            const importantElements = [];
-            const elementRegex = /<(input|button|a|select|textarea)[^>]*>[\s\S]*?(?:<\/\1>|\/?>)/gi;
-            let elementMatch;
-            while ((elementMatch = elementRegex.exec(cleanedHtml)) !== null) {
-                importantElements.push(elementMatch[0]);
-            }
-            
-            // Combine them with a sample of the rest
-            cleanedHtml = `<div class="important-content">
-                ${forms.join('\n')}
-                ${importantElements.join('\n')}
-                ${cleanedHtml.substring(0, 20000)}...
-            </div>`;
-        }
+            // Keep only critical attributes
+            const allowedAttrs = ['id', 'class', 'name', 'type', 'href'];
+            Object.keys(this.attribs).forEach(attr => {
+                if (!allowedAttrs.includes(attr)) {
+                    $el.removeAttr(attr);
+                } else if (attr === 'href') {
+                    const href = $el.attr('href');
+                    if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
+                        try {
+                            const parsedUrl = new URL(href, 'http://example.com');
+                            // Remove query parameters and hash
+                            parsedUrl.search = '';
+                            parsedUrl.hash = '';
+                            // Keep only hostname and pathname
+                            const shortUrl = parsedUrl.hostname + parsedUrl.pathname;
+                            $el.attr('href', shortUrl);
+                        } catch (e) {
+                            // If URL parsing fails, keep original href
+                        }
+                    }
+                }
+            });
+
+            // Simplify text nodes (preserve whitespace structure)
+            $el.contents().filter(function() {
+                return this.type === 'text';
+            }).each(function() {
+                const text = $(this).text()
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                $(this).replaceWith(text);
+            });
+        });
+
+        // Remove empty containers (preserve form elements)
+        let removed;
+        do {
+            removed = 0;
+            $('body *').each(function() {
+                const $el = $(this);
+                if (
+                    !$el.children().length &&
+                    !$el.text() &&
+                    !['input', 'img', 'br', 'hr'].includes(this.tagName.toLowerCase())
+                ) {
+                    $el.remove();
+                    removed++;
+                }
+            });
+        } while (removed > 0);
+
+        // Generate minimized HTML
+        const minimized = $('body').html()
+            .replace(/>\s+</g, '><')  // Remove whitespace between tags
+            .replace(/\s{2,}/g, ' ')   // Collapse multiple spaces
+            .trim();
+
+        saveResult(minimized);
+        return minimized;
+    } catch (error) {
+        console.error(`Error simplifying HTML: ${error.message}`);
+        return html;
+    }
+}
+
+/**
+ * Save minimized HTML
+ * @param {string} content - Minimized HTML content
+ */
+function saveResult(content) {
+    const outputDir = path.join(process.cwd(), 'xpath_html');
+    const outputPath = path.join(outputDir, `minimized_${Date.now()}.html`);
+    
+    if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
     }
     
-    return cleanedHtml;
+    fs.writeFileSync(outputPath, content);
+    console.log(`XPath-ready HTML saved to: ${outputPath}`);
 }
 
 module.exports = { cleanHtml };

@@ -1,11 +1,9 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { logger } = require('../utils/logger');
 const {
     retryWithBackoff,
     processCommand,
     findElementSelector,
     extractDataFromPage,
-    cleanHtml
 } = require('./nlp');
 
 /**
@@ -19,7 +17,7 @@ class NLPProcessor {
      */
     constructor(apiKey) {
         this.genAI = new GoogleGenerativeAI(apiKey);
-        this.model = this.genAI.getGenerativeModel({ model: "gemini-2.0-flash-thinking-exp-01-21" });
+        this.model = this.genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
         this.retryDelay = 1000; // 1 second
         this.maxRetries = 3;
     }

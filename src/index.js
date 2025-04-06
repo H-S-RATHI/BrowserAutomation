@@ -4,7 +4,7 @@ const express = require('express');
 const path = require('path');
 const { BrowserAutomation } = require('./core/BrowserAutomation');
 const { NLPProcessor } = require('./services/NLPProcessor');
-const { PlanExecutor } = require('./core/PlanExecutor');
+const PlanExecutor = require('./core/PlanExecutor');
 const { logger } = require('./utils/logger');
 
 const app = express();
@@ -25,7 +25,7 @@ app.post('/api/execute', async (req, res) => {
     try {
         // Process the natural language command
         const plan = await nlpProcessor.processCommand(command);
-        logger.info('Generated automation plan:', plan);
+        logger.info('Generated automation plan:', JSON.stringify(plan, null, 2));
 
         // Ensure browser automation is initialized
         if (!browserAutomation) {
